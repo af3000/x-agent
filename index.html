@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Shop</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <h1 class="logo">🛍️ Mini Shop</h1>
+    <button id="cart-toggle" class="cart-toggle" aria-label="Open cart">
+      Cart <span id="cart-count" class="cart-count">0</span>
+    </button>
+  </header>
+
+  <main>
+    <section id="products" class="products" aria-label="Products"></section>
+  </main>
+
+  <!-- Cart drawer -->
+  <aside id="cart" class="cart" aria-hidden="true">
+    <div class="cart-header">
+      <h2>Your Cart</h2>
+      <button id="cart-close" class="icon-btn" aria-label="Close cart">✕</button>
+    </div>
+    <ul id="cart-items" class="cart-items"></ul>
+    <div class="cart-footer">
+      <div class="cart-total">
+        <span>Total</span>
+        <span id="cart-total">$0.00</span>
+      </div>
+      <button id="checkout-btn" class="btn btn-primary" disabled>Checkout</button>
+    </div>
+  </aside>
+  <div id="overlay" class="overlay" hidden></div>
+
+  <!-- Checkout / payment modal -->
+  <div id="checkout-modal" class="modal" hidden>
+    <div class="modal-card">
+      <button id="checkout-close" class="icon-btn modal-close" aria-label="Close checkout">✕</button>
+      <h2>Checkout</h2>
+
+      <div id="order-summary" class="order-summary"></div>
+
+      <form id="payment-form" class="payment-form" novalidate>
+        <h3>Shipping</h3>
+        <label>Full name
+          <input name="name" type="text" autocomplete="name" required />
+        </label>
+        <label>Email
+          <input name="email" type="email" autocomplete="email" required />
+        </label>
+        <label>Address
+          <input name="address" type="text" autocomplete="street-address" required />
+        </label>
+
+        <h3>Payment</h3>
+        <label>Card number
+          <input name="card" type="text" inputmode="numeric" placeholder="4242 4242 4242 4242" maxlength="19" required />
+        </label>
+        <div class="form-row">
+          <label>Expiry
+            <input name="expiry" type="text" placeholder="MM/YY" maxlength="5" required />
+          </label>
+          <label>CVC
+            <input name="cvc" type="text" inputmode="numeric" placeholder="123" maxlength="4" required />
+          </label>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block">
+          Pay <span id="pay-amount">$0.00</span>
+        </button>
+        <p class="disclaimer">This is a demo store. No real payment is processed.</p>
+      </form>
+
+      <div id="confirmation" class="confirmation" hidden>
+        <div class="check">✓</div>
+        <h2>Thank you!</h2>
+        <p id="confirmation-text"></p>
+        <button id="confirmation-close" class="btn btn-primary">Continue shopping</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
