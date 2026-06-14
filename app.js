@@ -1,32 +1,57 @@
 /* ============================================================================
-   AgenticaTrade — Daily X Content Agent
+   AgenticaTrade — Daily X Content Agent (multi-account)
    ----------------------------------------------------------------------------
    A human-in-the-loop assistant that:
-     1. Generates draft X/Twitter posts daily from the account's topics/niche
-        and trending events in that space.
-     2. Lays drafts out on a weekly calendar to review / approve / edit / reject.
+     1. Generates draft X/Twitter posts daily for EACH account, from that
+        account's own topics/niche and trending events, with that account's
+        own signature tags.
+     2. Lays drafts out on a weekly calendar (per account) to review /
+        approve / edit / reject.
      3. Publishes ONLY posts approved in advance. When a post's scheduled time
         arrives with no approval, it is NOT posted — it is marked "missed".
 
+   Multi-account: accounts are just a dimension on the data model. Each post
+   carries an accountId; the calendar is scoped to the active account; the
+   scheduler (time-based) runs across ALL accounts. Add accounts via the UI.
+
    No build step, no dependencies. State persists in localStorage.
-   "Publishing" is simulated; see publishPost() for where a real X API call goes.
+   "Publishing" is simulated; see publishPost() for where a real per-account
+   X API call goes.
    ========================================================================== */
 
 "use strict";
 
-/* ----------------------------- Account profile --------------------------- */
-const ACCOUNT = {
-  handle: "@AgenticaTrade",
-  niche: "AI agents that trade tokenized real-world assets (RWA)",
-  // The account's topics / niche drive what we draft about.
-  topics: ["RWA tokens", "crypto", "trading", "equities", "commodities"],
-};
+/* ----------------------------- Default accounts --------------------------
+   The account's topics/niche drive WHAT we draft about; its tags drive the
+   hashtags appended. New accounts can be added from the UI. */
+const DEFAULT_ACCOUNTS = [
+  {
+    id: "agentica",
+    name: "AgenticaTrade",
+    handle: "@AgenticaTrade",
+    niche: "AI agents that trade tokenized real-world assets (RWA)",
+    topics: ["RWA tokens", "crypto", "trading", "equities", "commodities"],
+    tags: ["#RWA", "#Tokenization", "#DeFi", "#Trading", "#Crypto", "#Markets"],
+    color: "#1d9bf0",
+  },
+  {
+    id: "publicai",
+    name: "PublicAI",
+    handle: "@PublicAI",
+    niche: "a decentralized network for human data that powers better AI",
+    topics: ["AI", "data labeling", "DePIN", "open-source AI", "crypto"],
+    tags: ["#AI", "#DePIN", "#Web3", "#OpenSource", "#Crowdsourcing", "#Crypto"],
+    color: "#8b5cf6",
+  },
+];
 
 /* ----------------------------- Trend sources -----------------------------
-   In a production build these would be pulled live (news/X trends API).
-   Here we keep a representative pool relevant to the account's topics. Each
-   "trend" carries the angle the agent can build engagement-driving copy on. */
+   In production these would be pulled live (news/X trends API) per topic.
+   Here we keep a representative pool; an account only draws from trends whose
+   topic it cares about, and any topic with no curated trend falls back to a
+   generic one — so a brand-new account always produces content. */
 const TREND_POOL = [
+  // AgenticaTrade-leaning
   { topic: "RWA tokens", event: "tokenized US Treasuries cross a new TVL high", angle: "real yield is coming on-chain" },
   { topic: "RWA tokens", event: "a major bank pilots tokenized money-market funds", angle: "TradFi is quietly going on-chain" },
   { topic: "RWA tokens", event: "tokenized private credit funds open to retail", angle: "access that used to be institutions-only" },
@@ -41,30 +66,27 @@ const TREND_POOL = [
   { topic: "commodities", event: "oil jumps on supply-side headlines", angle: "the macro signal under the price spike" },
   { topic: "commodities", event: "gold breaks out as real rates fall", angle: "why the oldest RWA is back in focus" },
   { topic: "commodities", event: "copper rallies on grid + AI power demand", angle: "the metal nobody's talking about yet" },
+  // PublicAI-leaning
+  { topic: "AI", event: "a new open model tops the leaderboards", angle: "open beats closed over the long run" },
+  { topic: "AI", event: "frontier labs hit a data wall", angle: "high-quality human data is the real bottleneck" },
+  { topic: "data labeling", event: "demand for expert human data spikes", angle: "the people behind the models deserve a cut" },
+  { topic: "DePIN", event: "a DePIN network crosses a node milestone", angle: "real-world infra, owned by the crowd" },
+  { topic: "open-source AI", event: "an open dataset release goes viral", angle: "transparency compounds trust" },
 ];
 
 /* ----------------------- Copy templates (engagement) ----------------------
-   Styles chosen to grow followers + drive replies: hot takes, questions,
-   data hooks, contrarian angles, and short educational threads. Each returns
-   text we then trim to the 280-char limit. */
+   Styles chosen to grow followers + drive replies. Each returns text we then
+   trim to the 280-char limit. `ctx.account` is the active account. */
 const TEMPLATES = [
   ({ t }) => `Hot take: ${cap(t.event)} — and most people are reading it wrong.\n\n${cap(t.angle)}. 🧵\n\nWhat's your read? 👇`,
   ({ t }) => `${cap(t.event)}.\n\nThe boring truth nobody wants to hear: ${t.angle}.\n\nAgree or disagree?`,
-  ({ t }) => `Quick question for the timeline:\n\nNow that ${t.event}, are you adding, trimming, or sitting on your hands? 🤔\n\nDrop your reasoning 👇`,
-  ({ t }) => `📊 Signal, not noise:\n\n${cap(t.event)}.\n\nWhy it matters → ${t.angle}.\n\nFollow ${ACCOUNT.handle} — we break down ${t.topic} every day.`,
+  ({ t }) => `Quick question for the timeline:\n\nNow that ${t.event}, are you in, out, or watching? 🤔\n\nDrop your reasoning 👇`,
+  ({ t, account }) => `📊 Signal, not noise:\n\n${cap(t.event)}.\n\nWhy it matters → ${t.angle}.\n\nFollow ${account.handle} — we break down ${t.topic} every day.`,
   ({ t }) => `Everyone's panicking about ${t.topic}. We're not.\n\n${cap(t.event)} just told us ${t.angle}.\n\nZoom out. 🔭`,
   ({ t }) => `If you only read one thing about ${t.topic} today:\n\n${cap(t.event)}. The takeaway is simple — ${t.angle}.\n\nBookmark this. 🔖`,
   ({ t }) => `Unpopular opinion 🌶️\n\n${cap(t.event)} is bullish for one reason: ${t.angle}.\n\nTell me why I'm wrong.`,
-  ({ t }) => `The market gave us a tell today.\n\n${cap(t.event)}.\n\nOur agents flagged it instantly — because ${t.angle}.\n\nThis is why on-chain + automated > emotional. ⚡`,
+  ({ t, account }) => `The signal just fired.\n\n${cap(t.event)}.\n\nThis is exactly what ${account.handle} watches for — because ${t.angle}. ⚡`,
 ];
-
-const HASHTAGS = {
-  "RWA tokens": "#RWA #Tokenization #DeFi",
-  crypto: "#Crypto #Bitcoin #DeFi",
-  trading: "#Trading #Markets #Risk",
-  equities: "#Stocks #Equities #Investing",
-  commodities: "#Commodities #Gold #Oil",
-};
 
 /* Peak engagement slots (local time) we spread daily drafts across. */
 const POST_SLOTS = [
@@ -75,9 +97,10 @@ const POST_SLOTS = [
 ];
 const DRAFTS_PER_DAY = 2; // default batch size when seeding a day
 
-const STORAGE_KEY = "agentica.x.posts.v1";
+const POSTS_KEY = "agentica.x.posts.v1";
+const ACCOUNTS_KEY = "agentica.x.accounts.v1";
+const ACTIVE_KEY = "agentica.x.active.v1";
 const TICK_MS = 15000; // scheduler re-checks every 15s
-
 const MAX_LEN = 280;
 
 /* ------------------------------ Status model ------------------------------
@@ -95,27 +118,29 @@ const STATUS = {
 };
 
 /* -------------------------------- State ---------------------------------- */
-let posts = [];            // all posts across all days
-let weekStart = startOfWeek(new Date()); // Monday of the visible week
-let editingId = null;      // id of post currently in edit mode
+let accounts = [];         // all accounts
+let activeId = null;       // active account id (scopes the calendar)
+let posts = [];            // all posts across all accounts
+let weekStart = startOfWeek(new Date());
+let editingId = null;
 
 /* ------------------------------ Utilities -------------------------------- */
 const $ = (sel, root = document) => root.querySelector(sel);
-const uid = () => "px_" + Math.random().toString(36).slice(2, 10);
+const uid = (p = "px") => p + "_" + Math.random().toString(36).slice(2, 10);
 const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
 function trim280(text) {
   return text.length <= MAX_LEN ? text : text.slice(0, MAX_LEN - 1).trimEnd() + "…";
 }
-
+function slugify(s) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "acct";
+}
 function dayKey(date) {
-  // Local YYYY-MM-DD key
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
-
 function startOfWeek(date) {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
@@ -123,24 +148,20 @@ function startOfWeek(date) {
   d.setDate(d.getDate() - day);
   return d;
 }
-
 function addDays(date, n) {
   const d = new Date(date);
   d.setDate(d.getDate() + n);
   return d;
 }
-
 function fmtTime(iso) {
   return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
-
 function fmtDayHeader(date) {
   return {
     wd: date.toLocaleDateString([], { weekday: "short" }),
     md: date.toLocaleDateString([], { month: "short", day: "numeric" }),
   };
 }
-
 function relativeWhen(iso) {
   const ms = new Date(iso).getTime() - Date.now();
   if (ms <= 0) return "due now";
@@ -150,44 +171,82 @@ function relativeWhen(iso) {
   if (hrs < 24) return `in ${hrs} h`;
   return `in ${Math.round(hrs / 24)} d`;
 }
+function activeAccount() {
+  return accounts.find((a) => a.id === activeId) || accounts[0];
+}
+function accountById(id) {
+  return accounts.find((a) => a.id === id);
+}
 
 /* ----------------------------- Persistence ------------------------------- */
 function save() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(posts));
+    localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+    localStorage.setItem(ACTIVE_KEY, activeId);
   } catch (e) {
-    console.warn("Could not persist posts:", e);
+    console.warn("Could not persist state:", e);
   }
 }
-
 function load() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    posts = raw ? JSON.parse(raw) : [];
+    accounts = JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "null") || DEFAULT_ACCOUNTS.map((a) => ({ ...a }));
+  } catch {
+    accounts = DEFAULT_ACCOUNTS.map((a) => ({ ...a }));
+  }
+  if (!accounts.length) accounts = DEFAULT_ACCOUNTS.map((a) => ({ ...a }));
+
+  try {
+    posts = JSON.parse(localStorage.getItem(POSTS_KEY) || "[]");
   } catch {
     posts = [];
   }
+  // Migrate any legacy posts that predate multi-account.
+  for (const p of posts) if (!p.accountId) p.accountId = accounts[0].id;
+
+  activeId = localStorage.getItem(ACTIVE_KEY) || accounts[0].id;
+  if (!accountById(activeId)) activeId = accounts[0].id;
 }
 
 /* --------------------------- Content generation -------------------------- */
-let _lastTrendIdx = -1;
-function pickTrend(topicFilter) {
-  const pool = topicFilter ? TREND_POOL.filter((t) => t.topic === topicFilter) : TREND_POOL;
-  const list = pool.length ? pool : TREND_POOL;
-  let idx;
-  do {
-    idx = Math.floor(Math.random() * list.length);
-  } while (list.length > 1 && list[idx] === TREND_POOL[_lastTrendIdx]);
-  _lastTrendIdx = TREND_POOL.indexOf(list[idx]);
-  return list[idx];
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }
 
-function composeDraft(trend) {
+function genericTrend(topic, account) {
+  return { topic, event: `${topic} is dominating the conversation`, angle: `what it means for ${account.niche}` };
+}
+
+let _lastEvent = null;
+function pickTrend(account) {
+  // Only trends relevant to this account's topics; fall back to a generic one.
+  const relevant = TREND_POOL.filter((t) => account.topics.includes(t.topic));
+  let trend;
+  if (relevant.length) {
+    const pool = relevant.length > 1 ? relevant.filter((t) => t.event !== _lastEvent) : relevant;
+    trend = pool[Math.floor(Math.random() * pool.length)];
+  } else {
+    const topic = account.topics[Math.floor(Math.random() * account.topics.length)] || "the market";
+    trend = genericTrend(topic, account);
+  }
+  _lastEvent = trend.event;
+  return trend;
+}
+
+function pickTags(account, n = 3) {
+  return shuffle(account.tags || []).slice(0, n).join(" ");
+}
+
+function composeDraft(account, trend) {
   const template = TEMPLATES[Math.floor(Math.random() * TEMPLATES.length)];
-  const body = template({ t: trend, account: ACCOUNT });
-  const tags = HASHTAGS[trend.topic] || "";
-  const text = tags ? `${body}\n\n${tags}` : body;
-  return trim280(text);
+  const body = template({ t: trend, account });
+  const tags = pickTags(account);
+  return trim280(tags ? `${body}\n\n${tags}` : body);
 }
 
 function scheduledIsoFor(date, slotIndex) {
@@ -197,12 +256,12 @@ function scheduledIsoFor(date, slotIndex) {
   return d.toISOString();
 }
 
-// Create `count` fresh drafts for a given day, skipping slots already used.
-function generateDraftsForDay(date, count) {
+// Create `count` fresh drafts for a given account+day, skipping used/past slots.
+function generateDraftsForDay(account, date, count) {
   const key = dayKey(date);
   const usedSlots = new Set(
     posts
-      .filter((p) => dayKey(new Date(p.scheduledAt)) === key)
+      .filter((p) => p.accountId === account.id && dayKey(new Date(p.scheduledAt)) === key)
       .map((p) => {
         const t = new Date(p.scheduledAt);
         return POST_SLOTS.findIndex((s) => s.h === t.getHours() && s.m === t.getMinutes());
@@ -213,13 +272,13 @@ function generateDraftsForDay(date, count) {
   let made = 0;
   for (let slot = 0; slot < POST_SLOTS.length && made < count; slot++) {
     if (usedSlots.has(slot)) continue;
-    // Only place drafts in slots still in the future, so a freshly generated
-    // draft is always something you can review and approve in advance.
+    // Only place drafts in future slots so a fresh draft is always approvable.
     if (new Date(scheduledIsoFor(date, slot)).getTime() <= Date.now()) continue;
-    const trend = pickTrend();
+    const trend = pickTrend(account);
     posts.push({
       id: uid(),
-      text: composeDraft(trend),
+      accountId: account.id,
+      text: composeDraft(account, trend),
       topic: trend.topic,
       trend: trend.event,
       status: "draft",
@@ -232,36 +291,33 @@ function generateDraftsForDay(date, count) {
   return made;
 }
 
-// Seed every day in the visible week that has no drafts yet.
+// Seed every day in the visible week that has no drafts yet for the active account.
 function generateForVisibleWeek() {
+  const account = activeAccount();
   let total = 0;
   for (let i = 0; i < 7; i++) {
     const date = addDays(weekStart, i);
     const key = dayKey(date);
-    const existing = posts.some((p) => dayKey(new Date(p.scheduledAt)) === key);
-    if (!existing) total += generateDraftsForDay(date, DRAFTS_PER_DAY);
+    const existing = posts.some((p) => p.accountId === account.id && dayKey(new Date(p.scheduledAt)) === key);
+    if (!existing) total += generateDraftsForDay(account, date, DRAFTS_PER_DAY);
   }
-  if (total === 0) {
-    // Week already populated — add one more idea to today instead.
-    total += generateDraftsForDay(new Date(), 1);
-  }
+  if (total === 0) total += generateDraftsForDay(account, new Date(), 1);
   save();
-  runScheduler(); // a freshly generated past-due unapproved draft shouldn't linger as pending
+  runScheduler();
   render();
   return total;
 }
 
 /* ----------------------- Approval-gated scheduler ------------------------
-   This is the heart of the tool. On every tick we look at posts whose
-   scheduled time has passed:
-     • approved  → publish (this is the ONLY path to "published")
-     • anything else still pending (draft) → mark "missed"; it never posts.
-   Already-published / rejected / missed posts are left untouched.          */
+   The heart of the tool. Runs across ALL accounts (it's time-based):
+     • approved  → publish (the ONLY path to "published")
+     • still a draft and due → mark "missed"; it never posts.               */
 function publishPost(post) {
   // === Real integration point ===
-  // In production this is where we'd call the X API, e.g.:
-  //   await xClient.v2.tweet(post.text)
-  // We hard-gate it so it can ONLY be reached from an approved post.
+  // In production: look up the account's X credentials and post, e.g.:
+  //   const account = accountById(post.accountId);
+  //   await xClientFor(account).v2.tweet(post.text);
+  // The gate below ensures this is ONLY reachable from an approved post.
   if (post.status !== "approved") {
     console.error("Refusing to publish a post that was not approved:", post.id);
     return false;
@@ -274,21 +330,15 @@ function publishPost(post) {
 function runScheduler() {
   const now = Date.now();
   let changed = false;
-
   for (const post of posts) {
-    const due = new Date(post.scheduledAt).getTime() <= now;
-    if (!due) continue;
-
+    if (new Date(post.scheduledAt).getTime() > now) continue;
     if (post.status === "approved") {
       if (publishPost(post)) changed = true;
     } else if (post.status === "draft") {
-      // Due but never approved → gate blocks it. It does NOT post.
-      post.status = "missed";
+      post.status = "missed"; // due but never approved → gate blocks it
       changed = true;
     }
-    // published / rejected / missed → no action
   }
-
   if (changed) {
     save();
     render();
@@ -300,77 +350,51 @@ function runScheduler() {
 function getPost(id) {
   return posts.find((p) => p.id === id);
 }
-
 function approve(id) {
   const p = getPost(id);
   if (!p || p.status === "published") return;
-  // Guard: can't approve something already past its time (it can't be
-  // "approved in advance"). Nudge the user to reschedule first.
   if (new Date(p.scheduledAt).getTime() <= Date.now()) {
     p.status = "missed";
-    save();
-    render();
+    save(); render();
     flash("That slot already passed — reschedule it before approving.");
     return;
   }
   p.status = "approved";
-  save();
-  render();
+  save(); render();
 }
-
 function unapprove(id) {
   const p = getPost(id);
   if (!p || p.status === "published") return;
-  p.status = "draft";
-  save();
-  render();
+  p.status = "draft"; save(); render();
 }
-
 function reject(id) {
   const p = getPost(id);
   if (!p || p.status === "published") return;
-  p.status = "rejected";
-  save();
-  render();
+  p.status = "rejected"; save(); render();
 }
-
 function restore(id) {
-  // Bring a rejected/missed post back to draft so it can be edited & re-approved.
   const p = getPost(id);
   if (!p || p.status === "published") return;
-  p.status = "draft";
-  save();
-  render();
+  p.status = "draft"; save(); render();
 }
-
 function remove(id) {
   posts = posts.filter((p) => p.id !== id);
   if (editingId === id) editingId = null;
-  save();
-  render();
+  save(); render();
 }
-
 function regenerate(id) {
   const p = getPost(id);
   if (!p || p.status === "published") return;
-  const trend = pickTrend(p.topic);
-  p.text = composeDraft(trend);
+  const account = accountById(p.accountId) || activeAccount();
+  const trend = pickTrend(account);
+  p.text = composeDraft(account, trend);
   p.trend = trend.event;
+  p.topic = trend.topic;
   p.status = "draft"; // new copy must be re-approved
-  save();
-  render();
+  save(); render();
 }
-
-function startEdit(id) {
-  editingId = id;
-  render();
-}
-
-function cancelEdit() {
-  editingId = null;
-  render();
-}
-
+function startEdit(id) { editingId = id; render(); }
+function cancelEdit() { editingId = null; render(); }
 function saveEdit(id, newText, newScheduleLocal) {
   const p = getPost(id);
   if (!p) return;
@@ -379,12 +403,47 @@ function saveEdit(id, newText, newScheduleLocal) {
     const dt = new Date(newScheduleLocal);
     if (!isNaN(dt)) p.scheduledAt = dt.toISOString();
   }
-  // SAFETY: any edit invalidates a prior approval — must be re-approved so we
-  // never publish content the human didn't sign off on.
+  // SAFETY: any edit invalidates a prior approval — must be re-approved.
   if (p.status === "approved" || p.status === "missed") p.status = "draft";
+  editingId = null;
+  save(); render();
+}
+
+/* --------------------------- Account actions ----------------------------- */
+function switchAccount(id) {
+  if (!accountById(id)) return;
+  activeId = id;
   editingId = null;
   save();
   render();
+}
+function addAccount({ name, handle, niche, topics, tags }) {
+  const topicList = topics.split(",").map((s) => s.trim()).filter(Boolean);
+  if (!name.trim() || !topicList.length) {
+    flash("An account needs a name and at least one topic.");
+    return null;
+  }
+  const tagList = (tags || "")
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .map((t) => (t.startsWith("#") ? t : "#" + t));
+  let id = slugify(name);
+  while (accountById(id)) id = slugify(name) + "-" + Math.random().toString(36).slice(2, 5);
+  const colors = ["#1d9bf0", "#8b5cf6", "#1fbf75", "#f5a623", "#f4505b", "#06b6d4"];
+  const account = {
+    id,
+    name: name.trim(),
+    handle: handle.trim() || "@" + slugify(name).replace(/-/g, ""),
+    niche: niche.trim() || name.trim(),
+    topics: topicList,
+    tags: tagList.length ? tagList : ["#" + slugify(name).replace(/-/g, "")],
+    color: colors[accounts.length % colors.length],
+  };
+  accounts.push(account);
+  activeId = id;
+  save();
+  render();
+  return account;
 }
 
 /* ------------------------------ Rendering -------------------------------- */
@@ -392,14 +451,11 @@ function statusBadge(post) {
   const s = STATUS[post.status];
   return `<span class="badge ${s.cls}">${s.label}</span>`;
 }
-
 function toLocalInputValue(iso) {
-  // Format an ISO string into a value usable by <input type="datetime-local">
   const d = new Date(iso);
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
-
 function renderActions(post) {
   switch (post.status) {
     case "draft":
@@ -427,7 +483,6 @@ function renderActions(post) {
       return "";
   }
 }
-
 function renderPostCard(post) {
   if (editingId === post.id) {
     return `
@@ -446,17 +501,12 @@ function renderPostCard(post) {
         </form>
       </li>`;
   }
-
   const overLimit = post.text.length > MAX_LEN;
   const whenNote =
-    post.status === "approved"
-      ? `<span class="when ok">auto-publishes ${relativeWhen(post.scheduledAt)}</span>`
-      : post.status === "published"
-      ? `<span class="when">posted ${fmtTime(post.publishedAt)}</span>`
-      : post.status === "missed"
-      ? `<span class="when bad">not posted — wasn't approved in time</span>`
-      : "";
-
+    post.status === "approved" ? `<span class="when ok">auto-publishes ${relativeWhen(post.scheduledAt)}</span>`
+    : post.status === "published" ? `<span class="when">posted ${fmtTime(post.publishedAt)}</span>`
+    : post.status === "missed" ? `<span class="when bad">not posted — wasn't approved in time</span>`
+    : "";
   return `
     <li class="post ${STATUS[post.status].cls}" data-id="${post.id}">
       <div class="post-top">
@@ -465,27 +515,25 @@ function renderPostCard(post) {
       </div>
       <p class="post-text">${escapeHtml(post.text)}</p>
       <div class="post-meta">
-        <span class="topic">#${post.topic.replace(/\s+/g, "")}</span>
+        <span class="topic">#${String(post.topic).replace(/\s+/g, "")}</span>
         ${whenNote}
         <span class="len ${overLimit ? "over" : ""}">${post.text.length}/${MAX_LEN}</span>
       </div>
       <div class="post-actions">${renderActions(post)}</div>
     </li>`;
 }
-
 function renderCalendar() {
   const cal = $("#calendar");
+  const account = activeAccount();
   const today = dayKey(new Date());
   let html = "";
-
   for (let i = 0; i < 7; i++) {
     const date = addDays(weekStart, i);
     const key = dayKey(date);
     const { wd, md } = fmtDayHeader(date);
     const dayPosts = posts
-      .filter((p) => dayKey(new Date(p.scheduledAt)) === key)
+      .filter((p) => p.accountId === account.id && dayKey(new Date(p.scheduledAt)) === key)
       .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
-
     html += `
       <div class="day ${key === today ? "is-today" : ""}">
         <div class="day-head">
@@ -499,19 +547,34 @@ function renderCalendar() {
   }
   cal.innerHTML = html;
 }
-
+function renderAccountTabs() {
+  const tabs = $("#account-tabs");
+  tabs.innerHTML = accounts
+    .map((a) => {
+      const n = posts.filter((p) => p.accountId === a.id).length;
+      const active = a.id === activeId;
+      return `
+        <button class="acct-tab ${active ? "active" : ""}" data-account="${a.id}"
+                style="${active ? `--acct:${a.color}` : ""}">
+          <span class="acct-dot" style="background:${a.color}"></span>
+          <span class="acct-name">${escapeHtml(a.name)}</span>
+          <span class="acct-handle">${escapeHtml(a.handle)}</span>
+          ${n ? `<span class="acct-count">${n}</span>` : ""}
+        </button>`;
+    })
+    .join("");
+}
 function renderStatbar() {
+  const account = activeAccount();
+  const mine = posts.filter((p) => p.accountId === account.id);
   const counts = { draft: 0, approved: 0, published: 0, missed: 0, rejected: 0 };
-  for (const p of posts) counts[p.status]++;
-
-  const nextApproved = posts
+  for (const p of mine) counts[p.status]++;
+  const nextApproved = mine
     .filter((p) => p.status === "approved")
     .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt))[0];
-
   const nextNote = nextApproved
     ? `Next auto-publish: <strong>${relativeWhen(nextApproved.scheduledAt)}</strong>`
     : `No posts queued to publish`;
-
   $("#statbar").innerHTML = `
     <div class="stats">
       <span class="stat s-draft"><b>${counts.draft}</b> drafts</span>
@@ -520,17 +583,16 @@ function renderStatbar() {
       <span class="stat s-missed"><b>${counts.missed}</b> missed</span>
       <span class="stat s-rejected"><b>${counts.rejected}</b> rejected</span>
     </div>
-    <div class="next-note">${nextNote}</div>`;
+    <div class="next-note">${escapeHtml(account.name)} · ${nextNote}</div>`;
 }
-
 function renderWeekLabel() {
   const end = addDays(weekStart, 6);
   const opts = { month: "short", day: "numeric" };
   $("#week-label").textContent =
     `${weekStart.toLocaleDateString([], opts)} – ${end.toLocaleDateString([], { ...opts, year: "numeric" })}`;
 }
-
 function render() {
+  renderAccountTabs();
   renderWeekLabel();
   renderStatbar();
   renderCalendar();
@@ -538,20 +600,15 @@ function render() {
 
 /* ------------------------------- Helpers --------------------------------- */
 function escapeHtml(s) {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  return String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
-
 let _flashTimer = null;
 function flash(msg) {
   let el = $("#flash");
   if (!el) {
     el = document.createElement("div");
-    el.id = "flash";
-    el.className = "flash";
+    el.id = "flash"; el.className = "flash";
     document.body.appendChild(el);
   }
   el.textContent = msg;
@@ -560,13 +617,22 @@ function flash(msg) {
   _flashTimer = setTimeout(() => el.classList.remove("show"), 3200);
 }
 
+/* --------------------------- Account modal ------------------------------- */
+function openAccountModal() {
+  const modal = $("#account-modal");
+  $("#account-form").reset();
+  modal.hidden = false;
+}
+function closeAccountModal() {
+  $("#account-modal").hidden = true;
+}
+
 /* ------------------------------ Event wiring ----------------------------- */
 function onCalendarClick(e) {
   const btn = e.target.closest("[data-act]");
   if (!btn) return;
   const act = btn.dataset.act;
   const id = btn.dataset.id;
-
   switch (act) {
     case "approve": return approve(id);
     case "unapprove": return unapprove(id);
@@ -578,23 +644,18 @@ function onCalendarClick(e) {
     case "cancel-edit": return cancelEdit();
     case "add-day": {
       const d = new Date(btn.dataset.date + "T00:00:00");
-      const made = generateDraftsForDay(d, 1);
-      if (made) { save(); render(); } else flash("All time slots for that day are full.");
+      const made = generateDraftsForDay(activeAccount(), d, 1);
+      if (made) { save(); render(); } else flash("All time slots for that day are full or in the past.");
       return;
     }
   }
 }
-
 function onCalendarSubmit(e) {
   const form = e.target.closest(".edit-form");
   if (!form) return;
   e.preventDefault();
-  const id = form.dataset.id;
-  const text = $(".edit-text", form).value;
-  const time = $(".edit-time", form).value;
-  saveEdit(id, text, time);
+  saveEdit(form.dataset.id, $(".edit-text", form).value, $(".edit-time", form).value);
 }
-
 function onCalendarInput(e) {
   if (e.target.classList.contains("edit-text")) {
     const counter = e.target.closest(".edit-form").querySelector(".count");
@@ -605,9 +666,8 @@ function onCalendarInput(e) {
 function init() {
   load();
 
-  // First run with an empty store → seed the current week so there's something to review.
   if (posts.length === 0) {
-    generateForVisibleWeek();
+    generateForVisibleWeek(); // seed active account's week on first run
   } else {
     runScheduler();
     render();
@@ -616,11 +676,36 @@ function init() {
   // Header actions
   $("#generate-week").addEventListener("click", () => {
     const n = generateForVisibleWeek();
-    flash(n ? `Generated ${n} new draft${n === 1 ? "" : "s"}.` : "Week is fully drafted.");
+    flash(n ? `Generated ${n} new draft${n === 1 ? "" : "s"} for ${activeAccount().name}.` : "Week is fully drafted.");
   });
   $("#run-scheduler").addEventListener("click", () => {
     const changed = runScheduler();
     flash(changed ? "Scheduler ran: due posts processed." : "Nothing due right now.");
+  });
+
+  // Account switcher + add account
+  $("#account-tabs").addEventListener("click", (e) => {
+    const tab = e.target.closest(".acct-tab");
+    if (tab) switchAccount(tab.dataset.account);
+  });
+  $("#add-account").addEventListener("click", openAccountModal);
+  $("#account-close").addEventListener("click", closeAccountModal);
+  $("#account-cancel").addEventListener("click", closeAccountModal);
+  $("#account-modal").addEventListener("click", (e) => {
+    if (e.target.id === "account-modal") closeAccountModal(); // click backdrop
+  });
+  $("#account-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const f = e.target.elements;
+    const acct = addAccount({
+      name: f.name.value, handle: f.handle.value, niche: f.niche.value,
+      topics: f.topics.value, tags: f.tags.value,
+    });
+    if (acct) {
+      closeAccountModal();
+      const n = generateForVisibleWeek();
+      flash(`Added ${acct.name}${n ? ` and drafted ${n} post${n === 1 ? "" : "s"}` : ""}.`);
+    }
   });
 
   // Calendar navigation
@@ -634,7 +719,6 @@ function init() {
   cal.addEventListener("submit", onCalendarSubmit);
   cal.addEventListener("input", onCalendarInput);
 
-  // Keep the gate honest: re-run the scheduler on an interval.
   setInterval(runScheduler, TICK_MS);
 }
 

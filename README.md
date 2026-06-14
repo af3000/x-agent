@@ -12,8 +12,8 @@ dependencies — just open it in a browser.
 ## What it does
 
 1. **Generates draft posts daily** based on
-   - the account's topics/niche (RWA tokens, crypto, trading, equities like
-     TSLA/NVDA, commodities like oil/gold), and
+   - each account's own topics/niche (e.g. AgenticaTrade → RWA tokens, crypto,
+     trading, equities like TSLA/NVDA, commodities like oil/gold), and
    - trending events relevant to those topics.
    Copy is written in engagement-driving styles (hot takes, questions, data
    hooks, contrarian angles) with a follow CTA and topical hashtags, trimmed to
@@ -31,6 +31,24 @@ dependencies — just open it in a browser.
 
    This gate is enforced in `publishPost()`, which refuses to publish anything
    not in the `approved` state.
+
+## Multiple accounts
+
+The app is multi-account. Each account carries its **own topics and signature
+tags**, and posts are scoped to an account (`accountId` on every post):
+
+- Switch accounts with the tabs under the header — the calendar and stats are
+  scoped to the active account.
+- **＋ Add account** opens a form (display name, handle, niche, topics, tags).
+  Generation immediately drafts a week for the new account using its topics and
+  appends its tags. PublicAI ships as a second account out of the box.
+- The approval-gated scheduler is **time-based and runs across all accounts**,
+  so each account's approved posts publish at their own scheduled times.
+
+This scales without a separate platform. For production publishing across many
+accounts you'd add per-account X OAuth tokens and move the scheduler
+server-side (see notes below) — the generation, calendar, and approval gate are
+already account-agnostic.
 
 ## Post lifecycle
 

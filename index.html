@@ -21,6 +21,12 @@
     </div>
   </header>
 
+  <!-- Account switcher -->
+  <section class="account-bar" aria-label="Accounts">
+    <div id="account-tabs" class="account-tabs"></div>
+    <button id="add-account" class="btn btn-ghost btn-sm">＋ Add account</button>
+  </section>
+
   <!-- Status / stats bar -->
   <section class="statbar" id="statbar" aria-label="Pipeline summary"></section>
 
@@ -46,6 +52,36 @@
     <section id="calendar" class="calendar" aria-label="Weekly content calendar"></section>
   </main>
 
+  <!-- Add-account modal -->
+  <div id="account-modal" class="modal" hidden>
+    <div class="modal-card">
+      <button id="account-close" class="icon-btn modal-close" aria-label="Close">✕</button>
+      <h2 id="account-modal-title">Add an account</h2>
+      <p class="modal-sub">Each account drafts from its own topics and posts its own signature tags.</p>
+      <form id="account-form" class="account-form">
+        <label>Display name
+          <input name="name" type="text" placeholder="PublicAI" required />
+        </label>
+        <label>Handle
+          <input name="handle" type="text" placeholder="@PublicAI" />
+        </label>
+        <label>Niche / what the account is about
+          <input name="niche" type="text" placeholder="a decentralized network for human data that powers AI" />
+        </label>
+        <label>Topics <span class="hint">comma-separated</span>
+          <input name="topics" type="text" placeholder="AI, data labeling, DePIN, crypto" required />
+        </label>
+        <label>Signature tags <span class="hint">space or comma separated; # optional</span>
+          <input name="tags" type="text" placeholder="#AI #DePIN #Web3" />
+        </label>
+        <div class="modal-actions">
+          <button type="submit" class="btn btn-primary">Add account</button>
+          <button type="button" id="account-cancel" class="btn btn-ghost">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <footer class="site-footer">
     <p>
       Drafts never publish on their own. A post goes live <strong>only if you approved it</strong>
@@ -55,5 +91,4 @@
   </footer>
 
   <script src="app.js"></script>
-</body>
-</html>
+</body></html>
