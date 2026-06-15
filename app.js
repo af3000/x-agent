@@ -39,8 +39,12 @@ const DEFAULT_ACCOUNTS = [
     name: "PublicAI",
     handle: "@PublicAI",
     niche: "a decentralized network for human data that powers better AI",
-    topics: ["AI", "data labeling", "DePIN", "open-source AI", "crypto"],
-    tags: ["#AI", "#DePIN", "#Web3", "#OpenSource", "#Crowdsourcing", "#Crypto"],
+    topics: [
+      "AI", "data labeling", "DePIN", "open-source AI", "crypto",
+      "egocentric video", "robotics", "agent coding", "AI tokens",
+      "AI gateway", "AI infra",
+    ],
+    tags: ["#AI", "#DePIN", "#Web3", "#OpenSource", "#Crowdsourcing", "#Crypto", "#Robotics", "#AIagents"],
     color: "#8b5cf6",
   },
 ];
@@ -72,6 +76,14 @@ const TREND_POOL = [
   { topic: "data labeling", event: "demand for expert human data spikes", angle: "the people behind the models deserve a cut" },
   { topic: "DePIN", event: "a DePIN network crosses a node milestone", angle: "real-world infra, owned by the crowd" },
   { topic: "open-source AI", event: "an open dataset release goes viral", angle: "transparency compounds trust" },
+  { topic: "egocentric video", event: "demand explodes for first-person (egocentric) video to train robots", angle: "robots learn fastest from how humans actually do tasks" },
+  { topic: "egocentric video", event: "labs race to collect head-mounted camera footage of everyday chores", angle: "the next data moat is lived human experience" },
+  { topic: "robotics", event: "humanoid robots move from demos to factory-floor pilots", angle: "the real bottleneck is physical-world training data" },
+  { topic: "robotics", event: "robot foundation models keep scaling", angle: "more diverse human demonstrations beat more parameters" },
+  { topic: "agent coding", event: "AI coding agents start shipping production PRs", angle: "the dev workflow is going agent-first" },
+  { topic: "AI tokens", event: "AI + crypto tokens lead the market narrative", angle: "where real usage finally meets on-chain incentives" },
+  { topic: "AI gateway", event: "teams route every model call through a single AI gateway", angle: "one endpoint for every model, with full observability" },
+  { topic: "AI infra", event: "AI infrastructure spend outpaces every other budget line", angle: "compute and data are the new moats" },
 ];
 
 /* ----------------------- Copy templates (engagement) ----------------------
@@ -204,8 +216,29 @@ function load() {
   // Migrate any legacy posts that predate multi-account.
   for (const p of posts) if (!p.accountId) p.accountId = accounts[0].id;
 
+  reconcileDefaults();
+
   activeId = localStorage.getItem(ACTIVE_KEY) || accounts[0].id;
   if (!accountById(activeId)) activeId = accounts[0].id;
+}
+
+// Keep built-in accounts in sync with code: add any missing default account,
+// and additively merge new default topics/tags into existing ones (so updates
+// like new PublicAI topics reach users who already have state saved).
+function reconcileDefaults() {
+  for (const def of DEFAULT_ACCOUNTS) {
+    const existing = accountById(def.id);
+    if (!existing) {
+      accounts.push({ ...def, topics: [...def.topics], tags: [...def.tags] });
+      continue;
+    }
+    existing.topics = existing.topics || [];
+    existing.tags = existing.tags || [];
+    for (const t of def.topics) if (!existing.topics.includes(t)) existing.topics.push(t);
+    for (const t of def.tags) if (!existing.tags.includes(t)) existing.tags.push(t);
+    if (!existing.niche) existing.niche = def.niche;
+    if (!existing.color) existing.color = def.color;
+  }
 }
 
 /* --------------------------- Content generation -------------------------- */
@@ -788,6 +821,7 @@ function onCalendarInput(e) {
 
 function init() {
   load();
+  save(); // persist any reconciled default topics/tags
 
   if (posts.length === 0) {
     generateForVisibleWeek(); // seed active account's week on first run
