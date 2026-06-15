@@ -32,6 +32,16 @@ dependencies — just open it in a browser.
    This gate is enforced in `publishPost()`, which refuses to publish anything
    not in the `approved` state.
 
+## Banners
+
+Each post gets an **auto-generated branded banner**, drawn on a `<canvas>` from
+the post's hook line and the account's brand color (no uploads). Banners are
+generated on the fly and cached in memory — nothing image-heavy is written to
+`localStorage`, so storage stays tiny. Toggle a post's banner with the
+**🖼 Banner** button; editing the text regenerates it. In production,
+`publishPost()` renders the same banner and uploads it as X media before
+tweeting (integration point is commented in the code).
+
 ## Multiple accounts
 
 The app is multi-account. Each account carries its **own topics and signature

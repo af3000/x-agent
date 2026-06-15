@@ -282,6 +282,7 @@ function generateDraftsForDay(account, date, count) {
       topic: trend.topic,
       trend: trend.event,
       status: "draft",
+      bannerOn: true,
       scheduledAt: scheduledIsoFor(date, slot),
       createdAt: new Date().toISOString(),
       publishedAt: null,
@@ -316,7 +317,12 @@ function publishPost(post) {
   // === Real integration point ===
   // In production: look up the account's X credentials and post, e.g.:
   //   const account = accountById(post.accountId);
-  //   await xClientFor(account).v2.tweet(post.text);
+  //   let media;
+  //   if (bannerEnabled(post)) {
+  //     const png = drawBanner(post, account);            // same banner shown here
+  //     media = await xClientFor(account).v1.uploadMedia(png); // upload → media_id
+  //   }
+  //   await xClientFor(account).v2.tweet({ text: post.text, media });
   // The gate below ensures this is ONLY reachable from an approved post.
   if (post.status !== "approved") {
     console.error("Refusing to publish a post that was not approved:", post.id);
@@ -393,6 +399,12 @@ function regenerate(id) {
   p.status = "draft"; // new copy must be re-approved
   save(); render();
 }
+function toggleBanner(id) {
+  const p = getPost(id);
+  if (!p) return;
+  p.bannerOn = !bannerEnabled(p); // off if currently on, on if currently off
+  save(); render();
+}
 function startEdit(id) { editingId = id; render(); }
 function cancelEdit() { editingId = null; render(); }
 function saveEdit(id, newText, newScheduleLocal) {
@@ -456,6 +468,110 @@ function toLocalInputValue(iso) {
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+
+/* ------------------------- Auto-generated banners -------------------------
+   Each post gets a branded banner drawn on a <canvas> from its hook text and
+   the account's color. It is generated on the fly (cached in memory by a key
+   that includes the headline), so nothing image-heavy is ever persisted to
+   localStorage. In production, publishPost() would render this same banner and
+   upload it as media before tweeting. */
+const _bannerCache = new Map();
+
+function bannerEnabled(post) {
+  return post.bannerOn !== false; // on by default
+}
+function headlineFrom(text) {
+  const first = text.split("\n").map((s) => s.trim()).find(Boolean) || text;
+  return first.length > 90 ? first.slice(0, 89) + "…" : first;
+}
+function shade(hex, amt) {
+  let h = String(hex || "#1d9bf0").replace("#", "");
+  if (h.length === 3) h = h.split("").map((x) => x + x).join("");
+  const num = parseInt(h, 16);
+  const clamp = (v) => Math.max(0, Math.min(255, v));
+  const r = clamp((num >> 16) + amt), g = clamp(((num >> 8) & 0xff) + amt), b = clamp((num & 0xff) + amt);
+  return `rgb(${r},${g},${b})`;
+}
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function wrapText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+  const words = text.split(/\s+/);
+  let line = "", lines = 0;
+  for (let i = 0; i < words.length; i++) {
+    const test = line ? line + " " + words[i] : words[i];
+    if (ctx.measureText(test).width > maxWidth && line) {
+      ctx.fillText(line, x, y + lines * lineHeight);
+      line = words[i];
+      if (++lines >= maxLines - 1) {
+        // last allowed line — append remaining and ellipsize if needed
+        let rest = words.slice(i).join(" ");
+        while (ctx.measureText(rest + "…").width > maxWidth && rest.length > 1) rest = rest.slice(0, -1);
+        ctx.fillText(rest + (words.slice(i).join(" ") !== rest ? "…" : ""), x, y + lines * lineHeight);
+        return;
+      }
+    } else {
+      line = test;
+    }
+  }
+  ctx.fillText(line, x, y + lines * lineHeight);
+}
+function drawBanner(post, account) {
+  const W = 600, H = 314; // ~1.91:1, X summary-card ratio
+  const c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  const ctx = c.getContext("2d");
+  const FONT = "-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+
+  // Brand gradient + darkening overlay for text contrast.
+  const g = ctx.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, account.color);
+  g.addColorStop(1, shade(account.color, -55));
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "rgba(8,12,20,0.30)"; ctx.fillRect(0, 0, W, H);
+
+  // Topic chip
+  const chip = "#" + String(post.topic).replace(/\s+/g, "");
+  ctx.font = "600 18px " + FONT;
+  const cw = ctx.measureText(chip).width + 28;
+  ctx.fillStyle = "rgba(255,255,255,0.18)";
+  roundRect(ctx, 36, 34, cw, 34, 17); ctx.fill();
+  ctx.fillStyle = "#fff"; ctx.textBaseline = "middle";
+  ctx.fillText(chip, 50, 52);
+
+  // Headline (the post's hook)
+  ctx.fillStyle = "#ffffff";
+  ctx.textBaseline = "top";
+  ctx.font = "800 36px " + FONT;
+  wrapText(ctx, headlineFrom(post.text), 36, 104, W - 72, 44, 3);
+
+  // Handle + brand mark
+  ctx.textBaseline = "alphabetic";
+  ctx.font = "700 22px " + FONT;
+  ctx.fillStyle = "rgba(255,255,255,0.97)";
+  ctx.fillText(account.handle, 36, H - 36);
+  ctx.textAlign = "right";
+  ctx.font = "600 16px " + FONT;
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.fillText("𝕏 · " + account.name, W - 36, H - 38);
+  ctx.textAlign = "left";
+
+  return c.toDataURL("image/png");
+}
+function bannerFor(post) {
+  const account = accountById(post.accountId) || activeAccount();
+  const key = `${post.id}|${account.id}|${account.color}|${headlineFrom(post.text)}`;
+  if (_bannerCache.has(key)) return _bannerCache.get(key);
+  const url = drawBanner(post, account);
+  _bannerCache.set(key, url);
+  return url;
+}
 function renderActions(post) {
   switch (post.status) {
     case "draft":
@@ -463,11 +579,13 @@ function renderActions(post) {
         <button class="mini btn-approve" data-act="approve" data-id="${post.id}">✓ Approve</button>
         <button class="mini" data-act="edit" data-id="${post.id}">✎ Edit</button>
         <button class="mini" data-act="regenerate" data-id="${post.id}">↻ Regenerate</button>
+        <button class="mini" data-act="toggle-banner" data-id="${post.id}">${bannerEnabled(post) ? "🖼 Banner ✓" : "🖼 Add banner"}</button>
         <button class="mini btn-danger" data-act="reject" data-id="${post.id}">✕ Reject</button>`;
     case "approved":
       return `
         <button class="mini" data-act="unapprove" data-id="${post.id}">↩ Unapprove</button>
         <button class="mini" data-act="edit" data-id="${post.id}">✎ Edit</button>
+        <button class="mini" data-act="toggle-banner" data-id="${post.id}">${bannerEnabled(post) ? "🖼 Banner ✓" : "🖼 Add banner"}</button>
         <button class="mini btn-danger" data-act="reject" data-id="${post.id}">✕ Reject</button>`;
     case "published":
       return `<span class="posted-note">Posted to X ✓</span>`;
@@ -507,12 +625,16 @@ function renderPostCard(post) {
     : post.status === "published" ? `<span class="when">posted ${fmtTime(post.publishedAt)}</span>`
     : post.status === "missed" ? `<span class="when bad">not posted — wasn't approved in time</span>`
     : "";
+  const banner = bannerEnabled(post)
+    ? `<img class="post-banner" src="${bannerFor(post)}" alt="Generated banner for this post" />`
+    : "";
   return `
     <li class="post ${STATUS[post.status].cls}" data-id="${post.id}">
       <div class="post-top">
         <span class="time">${fmtTime(post.scheduledAt)}</span>
         ${statusBadge(post)}
       </div>
+      ${banner}
       <p class="post-text">${escapeHtml(post.text)}</p>
       <div class="post-meta">
         <span class="topic">#${String(post.topic).replace(/\s+/g, "")}</span>
@@ -640,6 +762,7 @@ function onCalendarClick(e) {
     case "restore": return restore(id);
     case "remove": return remove(id);
     case "regenerate": return regenerate(id);
+    case "toggle-banner": return toggleBanner(id);
     case "edit": return startEdit(id);
     case "cancel-edit": return cancelEdit();
     case "add-day": {

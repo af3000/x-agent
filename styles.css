@@ -227,6 +227,15 @@ main { max-width: 1300px; margin: 0 auto; padding: 0.5rem 1.5rem 2rem; }
 .badge.s-missed { color: var(--red); border-color: var(--red); }
 .badge.s-rejected { color: var(--amber); border-color: var(--amber); }
 
+.post-banner {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1.91 / 1;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  margin: 0.1rem 0 0.45rem;
+}
 .post-text { margin: 0.2rem 0 0.45rem; font-size: 0.82rem; white-space: pre-wrap; word-break: break-word; }
 .post-meta { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-size: 0.7rem; color: var(--muted); margin-bottom: 0.5rem; }
 .topic { color: var(--violet); font-weight: 600; }
