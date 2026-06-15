@@ -33,7 +33,10 @@ const DEFAULT_ACCOUNTS = [
     topics: ["RWA tokens", "crypto", "trading", "equities", "commodities"],
     tags: ["#RWA", "#Tokenization", "#DeFi", "#Trading", "#Crypto", "#Markets"],
     color: "#99FE01",
-    banner: { bg: "#000000", text: "#99FE01", accent: "#99FE01" },
+    banners: [
+      { bg: "#000000", text: "#99FE01", accent: "#99FE01" }, // black bg, lime text
+      { bg: "#99FE01", text: "#000000", accent: "#000000" }, // lime bg, black text
+    ],
   },
   {
     id: "publicai",
@@ -243,6 +246,7 @@ function reconcileDefaults() {
     // keep them in sync (this is what pushes the new AgenticaTrade colors out).
     existing.color = def.color;
     existing.banner = def.banner;
+    existing.banners = def.banners;
   }
 }
 
@@ -545,8 +549,19 @@ function hexToRgba(hex, a) {
   const num = parseInt(h, 16);
   return `rgba(${(num >> 16) & 255},${(num >> 8) & 255},${num & 255},${a})`;
 }
-// Per-account banner palette; falls back to a gradient of the account color.
-function bannerThemeFor(account) {
+// Per-account banner palette. Accounts may define `banners` (an array of
+// palettes, alternated per post for variety) or a single `banner`; otherwise
+// we fall back to a gradient of the account color.
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h;
+}
+function bannerThemeFor(account, post) {
+  if (account.banners && account.banners.length) {
+    const i = post ? hashStr(post.id) % account.banners.length : 0;
+    return account.banners[i];
+  }
   return account.banner || { bg: null, text: "#ffffff", accent: account.color };
 }
 function roundRect(ctx, x, y, w, h, r) {
@@ -585,7 +600,7 @@ function drawBanner(post, account) {
   c.width = W; c.height = H;
   const ctx = c.getContext("2d");
   const FONT = "-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
-  const theme = bannerThemeFor(account);
+  const theme = bannerThemeFor(account, post);
 
   // Background: a solid brand color if the theme sets one, else a gradient of
   // the account color with a darkening overlay for text contrast.
@@ -630,7 +645,7 @@ function drawBanner(post, account) {
 }
 function bannerFor(post) {
   const account = accountById(post.accountId) || activeAccount();
-  const theme = bannerThemeFor(account);
+  const theme = bannerThemeFor(account, post);
   const key = `${post.id}|${account.id}|${theme.bg}|${theme.text}|${theme.accent}|${headlineFrom(post.text)}`;
   if (_bannerCache.has(key)) return _bannerCache.get(key);
   const url = drawBanner(post, account);
