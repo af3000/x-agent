@@ -72,6 +72,9 @@ body {
 }
 .topic-pick select:hover { border-color: var(--accent); }
 .topic-pick select:focus { outline: none; border-color: var(--accent); }
+/* The dropdown popup uses the OS default (white) background; force dark theme
+   colors so options are readable instead of white-on-white. */
+.topic-pick option { background: var(--panel); color: var(--ink); }
 
 /* ------------------------------- Buttons --------------------------------- */
 .btn {

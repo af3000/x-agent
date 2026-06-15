@@ -32,7 +32,8 @@ const DEFAULT_ACCOUNTS = [
     niche: "AI agents that trade tokenized real-world assets (RWA)",
     topics: ["RWA tokens", "crypto", "trading", "equities", "commodities"],
     tags: ["#RWA", "#Tokenization", "#DeFi", "#Trading", "#Crypto", "#Markets"],
-    color: "#1d9bf0",
+    color: "#99FE01",
+    banner: { bg: "#000000", text: "#99FE01", accent: "#99FE01" },
   },
   {
     id: "publicai",
@@ -238,7 +239,10 @@ function reconcileDefaults() {
     for (const t of def.topics) if (!existing.topics.includes(t)) existing.topics.push(t);
     for (const t of def.tags) if (!existing.tags.includes(t)) existing.tags.push(t);
     if (!existing.niche) existing.niche = def.niche;
-    if (!existing.color) existing.color = def.color;
+    // Brand color + banner palette are code-defined for built-in accounts, so
+    // keep them in sync (this is what pushes the new AgenticaTrade colors out).
+    existing.color = def.color;
+    existing.banner = def.banner;
   }
 }
 
@@ -535,6 +539,16 @@ function shade(hex, amt) {
   const r = clamp((num >> 16) + amt), g = clamp(((num >> 8) & 0xff) + amt), b = clamp((num & 0xff) + amt);
   return `rgb(${r},${g},${b})`;
 }
+function hexToRgba(hex, a) {
+  let h = String(hex || "#ffffff").replace("#", "");
+  if (h.length === 3) h = h.split("").map((x) => x + x).join("");
+  const num = parseInt(h, 16);
+  return `rgba(${(num >> 16) & 255},${(num >> 8) & 255},${num & 255},${a})`;
+}
+// Per-account banner palette; falls back to a gradient of the account color.
+function bannerThemeFor(account) {
+  return account.banner || { bg: null, text: "#ffffff", accent: account.color };
+}
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -571,25 +585,32 @@ function drawBanner(post, account) {
   c.width = W; c.height = H;
   const ctx = c.getContext("2d");
   const FONT = "-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+  const theme = bannerThemeFor(account);
 
-  // Brand gradient + darkening overlay for text contrast.
-  const g = ctx.createLinearGradient(0, 0, W, H);
-  g.addColorStop(0, account.color);
-  g.addColorStop(1, shade(account.color, -55));
-  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = "rgba(8,12,20,0.30)"; ctx.fillRect(0, 0, W, H);
+  // Background: a solid brand color if the theme sets one, else a gradient of
+  // the account color with a darkening overlay for text contrast.
+  if (theme.bg) {
+    ctx.fillStyle = theme.bg;
+    ctx.fillRect(0, 0, W, H);
+  } else {
+    const g = ctx.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, account.color);
+    g.addColorStop(1, shade(account.color, -55));
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "rgba(8,12,20,0.30)"; ctx.fillRect(0, 0, W, H);
+  }
 
   // Topic chip
   const chip = "#" + String(post.topic).replace(/\s+/g, "");
   ctx.font = "600 18px " + FONT;
   const cw = ctx.measureText(chip).width + 28;
-  ctx.fillStyle = "rgba(255,255,255,0.18)";
+  ctx.fillStyle = hexToRgba(theme.accent, 0.20);
   roundRect(ctx, 36, 34, cw, 34, 17); ctx.fill();
-  ctx.fillStyle = "#fff"; ctx.textBaseline = "middle";
+  ctx.fillStyle = theme.text; ctx.textBaseline = "middle";
   ctx.fillText(chip, 50, 52);
 
   // Headline (the post's hook)
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = theme.text;
   ctx.textBaseline = "top";
   ctx.font = "800 36px " + FONT;
   wrapText(ctx, headlineFrom(post.text), 36, 104, W - 72, 44, 3);
@@ -597,11 +618,11 @@ function drawBanner(post, account) {
   // Handle + brand mark
   ctx.textBaseline = "alphabetic";
   ctx.font = "700 22px " + FONT;
-  ctx.fillStyle = "rgba(255,255,255,0.97)";
+  ctx.fillStyle = theme.text;
   ctx.fillText(account.handle, 36, H - 36);
   ctx.textAlign = "right";
   ctx.font = "600 16px " + FONT;
-  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.fillStyle = hexToRgba(theme.text, 0.85);
   ctx.fillText("𝕏 · " + account.name, W - 36, H - 38);
   ctx.textAlign = "left";
 
@@ -609,7 +630,8 @@ function drawBanner(post, account) {
 }
 function bannerFor(post) {
   const account = accountById(post.accountId) || activeAccount();
-  const key = `${post.id}|${account.id}|${account.color}|${headlineFrom(post.text)}`;
+  const theme = bannerThemeFor(account);
+  const key = `${post.id}|${account.id}|${theme.bg}|${theme.text}|${theme.accent}|${headlineFrom(post.text)}`;
   if (_bannerCache.has(key)) return _bannerCache.get(key);
   const url = drawBanner(post, account);
   _bannerCache.set(key, url);
