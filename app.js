@@ -135,6 +135,7 @@ let activeId = null;       // active account id (scopes the calendar)
 let posts = [];            // all posts across all accounts
 let weekStart = startOfWeek(new Date());
 let editingId = null;
+let topicFilter = null;    // null = all topics; otherwise restrict generation
 
 /* ------------------------------ Utilities -------------------------------- */
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -256,15 +257,17 @@ function genericTrend(topic, account) {
 }
 
 let _lastEvent = null;
-function pickTrend(account) {
-  // Only trends relevant to this account's topics; fall back to a generic one.
-  const relevant = TREND_POOL.filter((t) => account.topics.includes(t.topic));
+function pickTrend(account, forcedTopic) {
+  // Restrict to a chosen topic if given, else any of the account's topics;
+  // fall back to a generic trend when no curated one exists for the topic.
+  const topics = forcedTopic ? [forcedTopic] : account.topics;
+  const relevant = TREND_POOL.filter((t) => topics.includes(t.topic));
   let trend;
   if (relevant.length) {
     const pool = relevant.length > 1 ? relevant.filter((t) => t.event !== _lastEvent) : relevant;
     trend = pool[Math.floor(Math.random() * pool.length)];
   } else {
-    const topic = account.topics[Math.floor(Math.random() * account.topics.length)] || "the market";
+    const topic = forcedTopic || account.topics[Math.floor(Math.random() * account.topics.length)] || "the market";
     trend = genericTrend(topic, account);
   }
   _lastEvent = trend.event;
@@ -290,7 +293,8 @@ function scheduledIsoFor(date, slotIndex) {
 }
 
 // Create `count` fresh drafts for a given account+day, skipping used/past slots.
-function generateDraftsForDay(account, date, count) {
+// `forcedTopic` (optional) restricts the drafts to a single topic.
+function generateDraftsForDay(account, date, count, forcedTopic) {
   const key = dayKey(date);
   const usedSlots = new Set(
     posts
@@ -307,7 +311,7 @@ function generateDraftsForDay(account, date, count) {
     if (usedSlots.has(slot)) continue;
     // Only place drafts in future slots so a fresh draft is always approvable.
     if (new Date(scheduledIsoFor(date, slot)).getTime() <= Date.now()) continue;
-    const trend = pickTrend(account);
+    const trend = pickTrend(account, forcedTopic);
     posts.push({
       id: uid(),
       accountId: account.id,
@@ -325,7 +329,9 @@ function generateDraftsForDay(account, date, count) {
   return made;
 }
 
-// Seed every day in the visible week that has no drafts yet for the active account.
+// Seed drafts across the visible week for the active account.
+//  • All topics: fill any day that has no drafts yet.
+//  • A chosen topic: add one draft of that topic to each day with a free slot.
 function generateForVisibleWeek() {
   const account = activeAccount();
   let total = 0;
@@ -333,9 +339,13 @@ function generateForVisibleWeek() {
     const date = addDays(weekStart, i);
     const key = dayKey(date);
     const existing = posts.some((p) => p.accountId === account.id && dayKey(new Date(p.scheduledAt)) === key);
-    if (!existing) total += generateDraftsForDay(account, date, DRAFTS_PER_DAY);
+    if (topicFilter) {
+      total += generateDraftsForDay(account, date, 1, topicFilter);
+    } else if (!existing) {
+      total += generateDraftsForDay(account, date, DRAFTS_PER_DAY);
+    }
   }
-  if (total === 0) total += generateDraftsForDay(account, new Date(), 1);
+  if (total === 0) total += generateDraftsForDay(account, new Date(), 1, topicFilter || undefined);
   save();
   runScheduler();
   render();
@@ -425,7 +435,7 @@ function regenerate(id) {
   const p = getPost(id);
   if (!p || p.status === "published") return;
   const account = accountById(p.accountId) || activeAccount();
-  const trend = pickTrend(account);
+  const trend = pickTrend(account, p.topic); // keep the post's own topic
   p.text = composeDraft(account, trend);
   p.trend = trend.event;
   p.topic = trend.topic;
@@ -746,8 +756,20 @@ function renderWeekLabel() {
   $("#week-label").textContent =
     `${weekStart.toLocaleDateString([], opts)} – ${end.toLocaleDateString([], { ...opts, year: "numeric" })}`;
 }
+function renderTopicFilter() {
+  const sel = $("#topic-filter");
+  if (!sel) return;
+  const acc = activeAccount();
+  // Drop a stale filter that doesn't belong to the now-active account.
+  if (topicFilter && !acc.topics.includes(topicFilter)) topicFilter = null;
+  sel.innerHTML = ['<option value="">All topics</option>']
+    .concat(acc.topics.map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`))
+    .join("");
+  sel.value = topicFilter || "";
+}
 function render() {
   renderAccountTabs();
+  renderTopicFilter();
   renderWeekLabel();
   renderStatbar();
   renderCalendar();
@@ -800,7 +822,7 @@ function onCalendarClick(e) {
     case "cancel-edit": return cancelEdit();
     case "add-day": {
       const d = new Date(btn.dataset.date + "T00:00:00");
-      const made = generateDraftsForDay(activeAccount(), d, 1);
+      const made = generateDraftsForDay(activeAccount(), d, 1, topicFilter || undefined);
       if (made) { save(); render(); } else flash("All time slots for that day are full or in the past.");
       return;
     }
@@ -831,9 +853,13 @@ function init() {
   }
 
   // Header actions
+  $("#topic-filter").addEventListener("change", (e) => {
+    topicFilter = e.target.value || null;
+  });
   $("#generate-week").addEventListener("click", () => {
     const n = generateForVisibleWeek();
-    flash(n ? `Generated ${n} new draft${n === 1 ? "" : "s"} for ${activeAccount().name}.` : "Week is fully drafted.");
+    const scope = topicFilter ? `“${topicFilter}” ` : "";
+    flash(n ? `Generated ${n} ${scope}draft${n === 1 ? "" : "s"} for ${activeAccount().name}.` : "No free slots — try another week or topic.");
   });
   $("#run-scheduler").addEventListener("click", () => {
     const changed = runScheduler();

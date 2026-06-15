@@ -50,7 +50,28 @@ body {
 }
 .logo { margin: 0; font-size: 1.2rem; letter-spacing: -0.01em; }
 .tagline { margin: 0.1rem 0 0; color: var(--muted); font-size: 0.82rem; }
-.header-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.header-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+.topic-pick {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+.topic-pick select {
+  background: var(--panel-2);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.45rem 0.7rem;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.topic-pick select:hover { border-color: var(--accent); }
+.topic-pick select:focus { outline: none; border-color: var(--accent); }
 
 /* ------------------------------- Buttons --------------------------------- */
 .btn {
